@@ -1,45 +1,42 @@
 namespace ContosoWorker;
 
-public class TimedHostedService : IHostedService, IDisposable
+public class TimedHostedService : BackgroundService
 {
-    private int executionCount = 0;
     private readonly ILogger<TimedHostedService> _logger;
-    private Timer? _timer = null;
+    private int _executionCount;
 
     public TimedHostedService(ILogger<TimedHostedService> logger)
     {
         _logger = logger;
     }
 
-    public Task StartAsync(CancellationToken stoppingToken)
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         _logger.LogInformation("Timed Hosted Service running.");
 
-        _timer = new Timer(DoWork, null, TimeSpan.Zero,
-            TimeSpan.FromSeconds(5));
+        // When the timer should have no due-time, then do the work once now.
+        DoWork();
 
-        return Task.CompletedTask;
+        using PeriodicTimer timer = new(TimeSpan.FromSeconds(1));
+
+        try
+        {
+            while (await timer.WaitForNextTickAsync(stoppingToken))
+            {
+                DoWork();
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            _logger.LogInformation("Timed Hosted Service is stopping.");
+        }
     }
 
-    private void DoWork(object? state)
+    // Could also be a async method, that can be awaited in ExecuteAsync above
+    private void DoWork()
     {
-        var count = Interlocked.Increment(ref executionCount);
+        int count = Interlocked.Increment(ref _executionCount);
 
-        _logger.LogInformation(
-            "Timed Hosted Service is working. Count: {Count}", count);
-    }
-
-    public Task StopAsync(CancellationToken stoppingToken)
-    {
-        _logger.LogInformation("Timed Hosted Service is stopping.");
-
-        _timer?.Change(Timeout.Infinite, 0);
-
-        return Task.CompletedTask;
-    }
-
-    public void Dispose()
-    {
-        _timer?.Dispose();
+        _logger.LogInformation("Timed Hosted Service is working. Count: {Count}", count);
     }
 }
